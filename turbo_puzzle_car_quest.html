@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Turbo Puzzle: Car Quest</title>
+<style>
+:root{--ink:#14213d;--cream:#fff8e7;--orange:#ff7a3d;--mint:#52e0c4}
+*{box-sizing:border-box}body{margin:0;background:#111827;color:white;font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+.app{max-width:480px;margin:auto;min-height:100vh;background:linear-gradient(160deg,#172554,#111827 58%);padding:14px 13px 22px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.logo{font-weight:1000;font-size:20px;line-height:1.05;letter-spacing:.4px}.logo span{color:#ffb454}.tag{font-size:10px;letter-spacing:2px;color:#a5f3fc;font-weight:800}
+.coins{background:#263449;border:1px solid #40516b;border-radius:14px;padding:8px 12px;font-weight:900;color:#ffe082}
+.hud{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}.stat{background:#202d42;border:1px solid #33445f;border-radius:13px;padding:8px;text-align:center}.stat small{display:block;font-size:10px;color:#9fb1cb;font-weight:800;letter-spacing:1px}.stat b{font-size:17px}
+.gamebox{position:relative;border-radius:22px;overflow:hidden;border:2px solid #3b5272;box-shadow:0 14px 36px #0005;background:#75c7ed}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.overlay{position:absolute;inset:0;background:#081426b8;display:flex;align-items:center;justify-content:center;padding:22px;text-align:center}
+.card{width:100%;max-width:300px;background:#fff8e7;color:#18243b;border-radius:22px;padding:20px 17px;box-shadow:0 12px 0 #d9cba9}
+.card .emoji{font-size:42px}.card h2{margin:5px 0 8px;font-size:23px}.card p{font-size:13px;line-height:1.45;color:#526078}
+button{border:0;border-radius:14px;background:var(--orange);color:white;font-size:16px;font-weight:900;padding:13px 15px;box-shadow:0 4px 0 #bf4e27;cursor:pointer}
+button:active{transform:translateY(2px);box-shadow:0 2px 0 #bf4e27}
+.primary{width:100%;margin-top:7px}.controls{display:flex;gap:9px;margin:12px 0}.controls button{flex:1}.blue{background:#37a6d9;box-shadow:0 4px 0 #1c6e9c}.yellow{background:#f4c542;color:#34280a;box-shadow:0 4px 0 #bb8d1a}
+.note{text-align:center;color:#a9b9d1;font-size:11px;line-height:1.5;margin-top:9px}
+#puzzleOverlay{display:none;position:absolute;inset:0;background:#081426d9;align-items:center;justify-content:center;padding:18px}
+.puzzleCard{width:100%;background:#fff8e7;color:#14213d;border-radius:22px;padding:19px;box-shadow:0 12px 0 #d9cba9;text-align:center}
+.puzzleCard .eyebrow{font-size:10px;letter-spacing:2px;font-weight:1000;color:#f16a36}
+.puzzleCard h2{font-size:21px;margin:7px 0}.puzzleCard p{font-size:13px;color:#526078}
+.answers{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}.answers button{background:#dff7f1;color:#143b42;box-shadow:0 3px 0 #8acfc1;border:1px solid #b6e8dc}.answers button:active{box-shadow:0 1px 0 #8acfc1}
+#feedback{min-height:21px;font-size:13px;font-weight:900;margin-top:10px}
+@media(max-width:360px){.logo{font-size:17px}.stat b{font-size:15px}.app{padding:10px}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><div><div class="tag">ARCADE • PUZZLE • RACING</div><div class="logo">TURBO <span>PUZZLE</span></div></div><div class="coins">🪙 <span id="coins">0</span></div></header>
+<div class="hud"><div class="stat"><small>LEVEL</small><b id="level">01</b></div><div class="stat"><small>DISTANCE</small><b><span id="distance">0</span> m</b></div><div class="stat"><small>BEST</small><b id="best">0</b></div></div>
+<div class="gamebox">
+<canvas id="cv" width="390" height="590"></canvas>
+<div class="overlay" id="startOverlay"><div class="card"><div class="emoji">🏎️💨</div><h2>Ready, Driver?</h2><p>Traffic se bacho, coins collect karo aur har checkpoint par puzzle solve karke apni car upgrade karo!</p><button class="primary" id="play">START ENGINE ▶</button></div></div>
+<div id="puzzleOverlay"><div class="puzzleCard"><div class="eyebrow">CHECKPOINT CHALLENGE</div><h2 id="pTitle">Quick Puzzle</h2><p id="pText">Sahi jawab do aur bonus coins jeeto.</p><div class="answers" id="answers"></div><div id="feedback"></div></div></div>
+</div>
+<div class="controls"><button class="blue" id="left">◀ LEFT</button><button class="yellow" id="brake">Ⅱ PAUSE</button><button class="blue" id="right">RIGHT ▶</button></div>
+<div class="note">Mobile: LEFT / RIGHT buttons ya road ke left-right hisse par tap karein.<br>Demo game — coins sirf game ke points hain, asli paise nahi.</div>
+</div>
+<script>
+const cv=document.getElementById('cv'),x=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+let mode='start',lane=1,traffic=[],coinItems=[],distance=0,coins=0,level=1,best=0,frame=0,speed=3.1,roadShift=0,spawnTick=0,coinTick=0, puzzleIndex=0;
+const lanes=[104,195,286], carY=448;
+const colors=['#ff647c','#ffd166','#a78bfa','#62d99a','#f58c45'];
+function rounded(ctx,x0,y0,w,h,r,fill){ctx.fillStyle=fill;ctx.beginPath();ctx.roundRect(x0,y0,w,h,r);ctx.fill()}
+function drawCar(cx,cy,color,player=false){
+ // soft shadow
+ x.fillStyle='#10212c55';x.beginPath();x.ellipse(cx,cy+45,27,11,0,0,Math.PI*2);x.fill();
+ // wheels
+ rounded(x,cx-25,cy+12,9,22,4,'#18212c');rounded(x,cx+16,cy+12,9,22,4,'#18212c');
+ rounded(x,cx-25,cy+43,9,22,4,'#18212c');rounded(x,cx+16,cy+43,9,22,4,'#18212c');
+ // body
+ rounded(x,cx-21,cy,42,69,11,color);
+ // hood and windows
+ rounded(x,cx-15,cy+6,30,15,5,player?'#d8fbff':'#dce7f5');
+ rounded(x,cx-14,cy+28,28,18,4,player?'#167eaa':'#34465c');
+ rounded(x,cx-15,cy+51,30,10,4,color);
+ rounded(x,cx-14,cy+2,8,4,2,'#fff4ba');rounded(x,cx+6,cy+2,8,4,2,'#fff4ba');
+ if(player){rounded(x,cx-15,cy+60,9,4,2,'#ff5964');rounded(x,cx+6,cy+60,9,4,2,'#ff5964')}
+}
+function drawCoin(cx,cy){x.save();x.translate(cx,cy);x.fillStyle='#a76a13';x.beginPath();x.arc(0,0,12,0,7);x.fill();x.fillStyle='#ffd34e';x.beginPath();x.arc(0,0,9,0,7);x.fill();x.fillStyle='#a76a13';x.font='bold 13px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText('$',0,1);x.restore()}
+function render(){
+ // sky
+ let sky=x.createLinearGradient(0,0,0,590);sky.addColorStop(0,'#74d4f5');sky.addColorStop(.48,'#c3f2e5');sky.addColorStop(.49,'#66bc78');sky.addColorStop(1,'#24704c');x.fillStyle=sky;x.fillRect(0,0,390,590);
+ // clouds
+ x.fillStyle='#ffffffaa';[[54,65],[310,92],[265,43]].forEach(([a,b])=>{x.beginPath();x.arc(a,b,15,0,7);x.arc(a+17,b-6,19,0,7);x.arc(a+36,b,13,0,7);x.fill()});
+ // distant hills
+ x.fillStyle='#67ad71';x.beginPath();x.moveTo(0,250);x.quadraticCurveTo(75,190,142,250);x.quadraticCurveTo(235,180,390,244);x.lineTo(390,340);x.lineTo(0,340);x.fill();
+ // road
+ x.fillStyle='#4a5566';x.beginPath();x.moveTo(75,590);x.lineTo(115,175);x.lineTo(275,175);x.lineTo(315,590);x.closePath();x.fill();
+ // road edge
+ x.strokeStyle='#f8f2d7';x.lineWidth=5;x.beginPath();x.moveTo(78,590);x.lineTo(117,175);x.moveTo(312,590);x.lineTo(273,175);x.stroke();
+ // perspective lane markers
+ x.strokeStyle='#f6f2d8';x.lineCap='round';
+ for(let i=0;i<10;i++){let yy=((i*70+roadShift)%650)-45;let t=(yy+45)/460;let w=2+t*3;let y=175+yy*.9;let h=10+t*22;x.lineWidth=w;x.beginPath();x.moveTo(195, y);x.lineTo(195,y+h);x.stroke()}
+ // roadside trees
+ for(let i=0;i<7;i++){let yy=((i*105+roadShift*1.35)%700)-70;let scale=.35+yy/700*.7;let side=i%2===0?1:-1;let tx=side===-1?50-scale*7:340+scale*7;let ty=yy+70;
+ x.fillStyle='#754c35';x.fillRect(tx-3*scale,ty,6*scale,17*scale);x.fillStyle=i%2?'#16865a':'#208c60';x.beginPath();x.arc(tx,ty-4*scale,17*scale,0,7);x.fill();x.fillStyle='#35a96f';x.beginPath();x.arc(tx-6*scale,ty-8*scale,10*scale,0,7);x.fill()}
+ coinItems.forEach(c=>drawCoin(lanes[c.lane],c.y));traffic.forEach(t=>drawCar(lanes[t.lane],t.y,t.color));drawCar(lanes[lane],carY,'#24b7f4',true);
+ // top mini banner
+ rounded(x,12,12,137,32,12,'#10243bd9');x.fillStyle='white';x.font='bold 12px system-ui';x.fillText('🚦 CITY RUN',23,33);
+}
+function stats(){$('coins').textContent=coins;$('distance').textContent=Math.floor(distance);$('level').textContent=String(level).padStart(2,'0');$('best').textContent=best}
+function move(d){if(mode!=='run')return;lane=Math.max(0,Math.min(2,lane+d));render()}
+function spawnTraffic(){let ln=Math.floor(Math.random()*3);if(!traffic.some(t=>t.lane===ln&&t.y<145))traffic.push({lane:ln,y:160,color:colors[Math.floor(Math.random()*colors.length)]})}
+function spawnCoin(){let ln=Math.floor(Math.random()*3);coinItems.push({lane:ln,y:180})}
+function loop(){
+ if(mode!=='run')return;
+ frame++;roadShift=(roadShift+speed*2.4)%700;distance+=.16*speed;
+ spawnTick++;coinTick++;
+ if(spawnTick>Math.max(27,58-level*3)){spawnTraffic();spawnTick=0}
+ if(coinTick>47){spawnCoin();coinTick=0}
+ traffic.forEach(t=>t.y+=speed*(.65+t.y/650));coinItems.forEach(c=>c.y+=speed*1.05);
+ traffic=traffic.filter(t=>t.y<650);coinItems=coinItems.filter(c=>c.y<650);
+ for(const t of traffic){if(t.lane===lane&&t.y+62>carY+8&&t.y<carY+60){gameOver();return}}
+ coinItems=coinItems.filter(c=>{if(c.lane===lane&&Math.abs(c.y+8-(carY+25))<35){coins+=1;return false}return true});
+ if(Math.floor(distance)>0&&Math.floor(distance)%120===0&&Math.floor(distance)!==puzzleIndex){puzzleIndex=Math.floor(distance);showPuzzle();return}
+ if(Math.floor(distance)>0&&Math.floor(distance)%250===0){level++;speed=Math.min(6.3,speed+.25)}
+ stats();render();requestAnimationFrame(loop)
+}
+const puzzles=[
+ {q:'Quick math: 6 + 4 ÷ 2 = ?',a:['5','8','10','12'],ok:'8',why:'Pehle division: 4 ÷ 2 = 2, phir 6 + 2 = 8.'},
+ {q:'Traffic light mein RED ka matlab?',a:['Ruko','Tez chalo','Horn bajao','Race lagao'],ok:'Ruko',why:'Red light par rukna hota hai.'},
+ {q:'Series poori karo: 3, 6, 9, __',a:['10','11','12','15'],ok:'12',why:'Har baar 3 add hota hai.'},
+ {q:'Car ke 4 wheels hain. 2 cars ke kitne?',a:['6','8','10','12'],ok:'8',why:'4 + 4 = 8 wheels.'},
+ {q:'Kaunsa fuel-free travel option hai?',a:['Bicycle','Petrol car','Truck','Bike'],ok:'Bicycle',why:'Bicycle chalane ke liye petrol nahi chahiye.'}
+];
+function showPuzzle(){mode='puzzle';let p=puzzles[Math.floor(distance/120-1)%puzzles.length];$('pTitle').textContent=p.q;$('pText').textContent='Sahi jawab do aur +15 coins bonus pao.';$('feedback').textContent='';$('answers').innerHTML='';[...p.a].sort(()=>Math.random()-.5).forEach(a=>{let b=document.createElement('button');b.textContent=a;b.onclick=()=>{if(mode!=='puzzle')return;let ok=a===p.ok;if(ok){coins+=15;$('feedback').textContent='Correct! +15 coins 🎉';$('feedback').style.color='#13805d'}else{$('feedback').textContent='Not quite! '+p.why;$('feedback').style.color='#bd4b36'}stats();setTimeout(()=>{if(mode==='puzzle'){$('puzzleOverlay').style.display='none';mode='run';render();requestAnimationFrame(loop)}},900)};$('answers').appendChild(b)});$('puzzleOverlay').style.display='flex'}
+function gameOver(){mode='over';best=Math.max(best,Math.floor(distance));stats();$('startOverlay').style.display='flex';$('startOverlay').querySelector('.emoji').textContent='💥🚘';$('startOverlay').querySelector('h2').textContent='Race Over!';$('startOverlay').querySelector('p').textContent='Distance: '+Math.floor(distance)+' m • Coins: '+coins+'. Dobara try karo aur apna best score todo!';$('play').textContent='PLAY AGAIN ↻';}
+function start(){lane=1;traffic=[];coinItems=[];distance=0;coins=0;level=1;speed=3.1;frame=0;roadShift=0;spawnTick=0;coinTick=0;puzzleIndex=0;mode='run';$('startOverlay').style.display='none';$('puzzleOverlay').style.display='none';stats();render();requestAnimationFrame(loop)}
+$('play').onclick=start;$('left').onclick=()=>move(-1);$('right').onclick=()=>move(1);
+$('brake').onclick=()=>{if(mode==='run'){mode='pause';$('brake').textContent='▶ RESUME';$('startOverlay').style.display='flex';$('startOverlay').querySelector('.emoji').textContent='⏸️';$('startOverlay').querySelector('h2').textContent='Paused';$('startOverlay').querySelector('p').textContent='Ready ho to race dobara chalao.';$('play').textContent='RESUME ▶'}else if(mode==='pause'){mode='run';$('startOverlay').style.display='none';$('brake').textContent='Ⅱ PAUSE';requestAnimationFrame(loop)}};
+cv.addEventListener('pointerdown',e=>{if(mode!=='run')return;let r=cv.getBoundingClientRect();let xx=(e.clientX-r.left)/r.width;if(xx<.42)move(-1);else if(xx>.58)move(1)});
+render();
+</script>
+</body></html>
